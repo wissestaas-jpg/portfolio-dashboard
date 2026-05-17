@@ -173,7 +173,7 @@ def compute_risk(portfolio_df, total_hist, cash_eur, total_value):
     # ── Volatility & Sharpe (1Y daily returns) ───────────────────────────────
     vol_1y = sharpe = None
     if not total_hist.empty and len(total_hist) > 60:
-        hist_1y = total_hist.last("252D")
+        hist_1y = total_hist[total_hist.index >= (total_hist.index[-1] - pd.DateOffset(days=365))]
         rets = hist_1y.pct_change().dropna()
         if len(rets) > 20:
             vol_1y  = rets.std() * (252 ** 0.5) * 100   # annualised %
