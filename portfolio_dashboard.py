@@ -220,8 +220,11 @@ def load_transactions(filepath):
 
 
 def parse_account_csv(filepath):
-    """Returns (deposits_df, eur_balance_series, net_deposited_eur)."""
-    if not os.path.exists(filepath):
+    """Returns (deposits_df, eur_balance_series, net_deposited_eur).
+    filepath can be a path string or a file-like object (BytesIO)."""
+    if filepath is None:
+        return pd.DataFrame(), pd.Series(dtype=float), 0.0
+    if isinstance(filepath, str) and not os.path.exists(filepath):
         return pd.DataFrame(), pd.Series(dtype=float), 0.0
 
     df = pd.read_csv(filepath, encoding="utf-8")
@@ -395,21 +398,44 @@ def v(amount, blur, fmt="€{:,.2f}"):
 def main():
     st.title("Portfolio Dashboard")
 
-    if not os.path.exists(TRANSACTIONS_FILE):
-        uploaded = st.file_uploader("Upload DEGIRO Transactions.csv", type="csv")
-        if uploaded:
-            with open(TRANSACTIONS_FILE, "wb") as f:
-                f.write(uploaded.getbuffer())
-            st.rerun()
-        else:
-            st.info("Place your DEGIRO Transactions.csv in the app directory or upload it above.")
+    # ── Determine data sources (local files or uploaded) ─────────────────────
+    local_tx   = os.path.exists(TRANSACTIONS_FILE)
+    local_acct = os.path.exists(ACCOUNT_FILE)
+
+    if local_tx:
+        tx_source   = TRANSACTIONS_FILE
+        acct_source = ACCOUNT_FILE if local_acct else None
+    else:
+        # Cloud / no local files → use session state to survive reruns
+        if "tx_bytes" not in st.session_state:
+            st.session_state.tx_bytes   = None
+        if "acct_bytes" not in st.session_state:
+            st.session_state.acct_bytes = None
+
+        with st.expander("📂 Upload your DEGIRO exports", expanded=st.session_state.tx_bytes is None):
+            col1, col2 = st.columns(2)
+            with col1:
+                up_tx = st.file_uploader("Transactions.csv", type="csv", key="up_tx")
+                if up_tx:
+                    st.session_state.tx_bytes = up_tx.getvalue()
+            with col2:
+                up_acct = st.file_uploader("Account.csv (optional, for cash & deposits)", type="csv", key="up_acct")
+                if up_acct:
+                    st.session_state.acct_bytes = up_acct.getvalue()
+
+        if st.session_state.tx_bytes is None:
+            st.info("Upload your DEGIRO **Transactions.csv** to get started. Account.csv is optional (adds cash balance and deposit markers).")
             return
 
+        import io
+        tx_source   = io.BytesIO(st.session_state.tx_bytes)
+        acct_source = io.BytesIO(st.session_state.acct_bytes) if st.session_state.acct_bytes else None
+
     # ── Load data ────────────────────────────────────────────────────────────
-    df_tx = load_transactions(TRANSACTIONS_FILE)
+    df_tx = load_transactions(tx_source)
     holdings = compute_holdings(df_tx)
     eur_usd = get_exchange_rate()
-    deposits_df, eur_balance_hist, net_deposited = parse_account_csv(ACCOUNT_FILE)
+    deposits_df, eur_balance_hist, net_deposited = parse_account_csv(acct_source) if acct_source else (pd.DataFrame(), pd.Series(dtype=float), 0.0)
 
     # ── Sidebar ───────────────────────────────────────────────────────────────
     st.sidebar.markdown(f"**EUR/USD:** {eur_usd:.4f}")
