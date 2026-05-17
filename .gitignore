@@ -1,0 +1,12 @@
+# Personal financial data — never commit these
+*.csv
+Account.csv
+Transactions.csv
+
+# macOS
+.DS_Store
+__pycache__/
+*.pyc
+
+# Streamlit cache
+.streamlit/
