@@ -396,43 +396,56 @@ def v(amount, blur, fmt="€{:,.2f}"):
 
 
 def main():
+    import io
     st.title("Portfolio Dashboard")
 
-    # ── Determine data sources (local files or uploaded) ─────────────────────
-    local_tx   = os.path.exists(TRANSACTIONS_FILE)
-    local_acct = os.path.exists(ACCOUNT_FILE)
+    # ── Session state init ────────────────────────────────────────────────────
+    if "tx_bytes" not in st.session_state:
+        st.session_state.tx_bytes   = None
+    if "acct_bytes" not in st.session_state:
+        st.session_state.acct_bytes = None
 
-    if local_tx:
-        tx_source   = TRANSACTIONS_FILE
-        acct_source = ACCOUNT_FILE if local_acct else None
-    else:
-        # Cloud / no local files → use session state to survive reruns
-        if "tx_bytes" not in st.session_state:
-            st.session_state.tx_bytes   = None
-        if "acct_bytes" not in st.session_state:
-            st.session_state.acct_bytes = None
+    # Auto-load from local files the first time (local runs only).
+    # We read into bytes so the rest of the code is identical whether
+    # files came from disk or from an upload widget.
+    if st.session_state.tx_bytes is None and os.path.exists(TRANSACTIONS_FILE):
+        with open(TRANSACTIONS_FILE, "rb") as f:
+            st.session_state.tx_bytes = f.read()
+    if st.session_state.acct_bytes is None and os.path.exists(ACCOUNT_FILE):
+        with open(ACCOUNT_FILE, "rb") as f:
+            st.session_state.acct_bytes = f.read()
 
-        with st.expander("📂 Upload your DEGIRO exports", expanded=st.session_state.tx_bytes is None):
-            col1, col2 = st.columns(2)
-            with col1:
-                up_tx = st.file_uploader("Transactions.csv", type="csv", key="up_tx")
-                if up_tx:
-                    st.session_state.tx_bytes = up_tx.getvalue()
-            with col2:
-                up_acct = st.file_uploader("Account.csv (optional, for cash & deposits)", type="csv", key="up_acct")
-                if up_acct:
-                    st.session_state.acct_bytes = up_acct.getvalue()
+    # ── Upload UI (shown when no data loaded yet, or after a bad file) ────────
+    need_upload = st.session_state.tx_bytes is None
+    with st.expander("📂 Upload your DEGIRO exports", expanded=need_upload):
+        col1, col2 = st.columns(2)
+        with col1:
+            up_tx = st.file_uploader("Transactions.csv (required)", type="csv", key="up_tx")
+            if up_tx:
+                st.session_state.tx_bytes = up_tx.getvalue()
+                st.rerun()
+        with col2:
+            up_acct = st.file_uploader("Account.csv (optional — adds cash & deposit info)", type="csv", key="up_acct")
+            if up_acct:
+                st.session_state.acct_bytes = up_acct.getvalue()
+                st.rerun()
 
-        if st.session_state.tx_bytes is None:
-            st.info("Upload your DEGIRO **Transactions.csv** to get started. Account.csv is optional (adds cash balance and deposit markers).")
-            return
+    if st.session_state.tx_bytes is None:
+        st.info("Upload your DEGIRO **Transactions.csv** above to get started.")
+        return
 
-        import io
-        tx_source   = io.BytesIO(st.session_state.tx_bytes)
-        acct_source = io.BytesIO(st.session_state.acct_bytes) if st.session_state.acct_bytes else None
+    # ── Always work from BytesIO — never write to disk ────────────────────────
+    tx_source   = io.BytesIO(st.session_state.tx_bytes)
+    acct_source = io.BytesIO(st.session_state.acct_bytes) if st.session_state.acct_bytes else None
 
-    # ── Load data ────────────────────────────────────────────────────────────
-    df_tx = load_transactions(tx_source)
+    # ── Load data ─────────────────────────────────────────────────────────────
+    try:
+        df_tx = load_transactions(tx_source)
+    except Exception as e:
+        st.error(f"⚠️ Could not read Transactions.csv: {e}\n\nPlease re-upload a valid DEGIRO Transactions export.")
+        st.session_state.tx_bytes = None
+        return
+
     holdings = compute_holdings(df_tx)
     eur_usd = get_exchange_rate()
     deposits_df, eur_balance_hist, net_deposited = parse_account_csv(acct_source) if acct_source else (pd.DataFrame(), pd.Series(dtype=float), 0.0)
