@@ -415,20 +415,20 @@ def main():
         with open(ACCOUNT_FILE, "rb") as f:
             st.session_state.acct_bytes = f.read()
 
-    # ── Upload UI (shown when no data loaded yet, or after a bad file) ────────
-    need_upload = st.session_state.tx_bytes is None
-    with st.expander("📂 Upload your DEGIRO exports", expanded=need_upload):
+    # ── Upload UI ─────────────────────────────────────────────────────────────
+    # Keep expander open until Transactions.csv is loaded
+    with st.expander("📂 Upload your DEGIRO exports",
+                     expanded=st.session_state.tx_bytes is None):
+        st.caption("Download these from DEGIRO → Portfolio/Account → Export")
         col1, col2 = st.columns(2)
         with col1:
             up_tx = st.file_uploader("Transactions.csv (required)", type="csv", key="up_tx")
-            if up_tx:
+            if up_tx is not None:
                 st.session_state.tx_bytes = up_tx.getvalue()
-                st.rerun()
         with col2:
             up_acct = st.file_uploader("Account.csv (optional — adds cash & deposit info)", type="csv", key="up_acct")
-            if up_acct:
+            if up_acct is not None:
                 st.session_state.acct_bytes = up_acct.getvalue()
-                st.rerun()
 
     if st.session_state.tx_bytes is None:
         st.info("Upload your DEGIRO **Transactions.csv** above to get started.")
